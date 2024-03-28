@@ -82,7 +82,7 @@ const VRPosenet = () => {
         className="absolute mx-auto left-0 right-0 text-center"
         style={{ width: 640, height: 480 }}
         ref={webcamRef}
-      ></Webcam>
+      />
 
       <canvas
         className="absolute mx-auto left-0 right-0 text-center"
