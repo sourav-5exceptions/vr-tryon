@@ -14,11 +14,12 @@
     "@tensorflow/tfjs-backend-webgl": "^4.17.0",
     "@tensorflow/tfjs-converter": "^4.17.0",
     "@tensorflow/tfjs-core": "^4.17.0",
+    "@types/three": "^0.163.0",
     "next": "14.1.4",
     "react": "^18",
     "react-dom": "^18",
     "react-webcam": "^7.2.0",
-    "three": "^0.162.0"
+    "three": "^0.163.0"
   },
   "devDependencies": {
     "@types/node": "^20",

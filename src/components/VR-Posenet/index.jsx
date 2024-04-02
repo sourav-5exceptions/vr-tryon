@@ -3,16 +3,20 @@
 
 import * as poseDetection from "@tensorflow-models/pose-detection";
 import * as tf from "@tensorflow/tfjs-core";
+import * as THREE from "three";
+
 import React, { useEffect, useRef, useState } from "react";
 import Webcam from "react-webcam";
 // Register one of the TF.js backends.
 import "@tensorflow/tfjs-backend-webgl";
+import Loader from "../Loader";
 
-const VRPosenet = () => {
+const VRPoseDetection = () => {
   const webcamRef = useRef(null);
   const canvasRef = useRef(null);
   const [net, setNet] = useState(null);
-  const [glassesImg, setGlassesImg] = useState(null);
+  const [isLoading, setLoading] = useState(false);
+  const [glassesMesh, setGlassesMesh] = useState(null);
 
   const detectPoses = async () => {
     try {
@@ -42,14 +46,14 @@ const VRPosenet = () => {
           );
 
           // Draw each pose over canvas
-          // poses.forEach(({ keypoints }) => {
-          //   keypoints.forEach(({ x, y }) => {
-          //     ctx.beginPath();
-          //     ctx.arc(x, y, 3, 0, 2 * Math.PI);
-          //     ctx.fillStyle = "lightblue";
-          //     ctx.fill();
-          //   });
-          // });
+          poses.forEach(({ keypoints }) => {
+            keypoints.forEach(({ x, y }) => {
+              ctx.beginPath();
+              ctx.arc(x, y, 3, 0, 2 * Math.PI);
+              ctx.fillStyle = "lightblue";
+              ctx.fill();
+            });
+          });
 
           const bodyPointsWithName = [];
           poses[0].keypoints.forEach(({ x, y, score, name }) => {
@@ -67,22 +71,45 @@ const VRPosenet = () => {
           const leftEye = getBodyPartData("left_eye");
           const rightEye = getBodyPartData("right_eye");
 
+          // Convert 2D keypoints to 3D space
+          // glassesMesh.position.x = (leftEye.x + rightEye.x) / 2;
+          // glassesMesh.position.y = (leftEye.y + rightEye.y) / 2;
+          // glassesMesh.position.z = 10;
+
+          // // Calculate the scale of the glassesMesh based on eye distance
+          // const eyeDistance = Math.abs(rightEye.x - leftEye.x);
+          // const glassesScale = eyeDistance / 100; // Adjust this scale factor as needed
+
+          // glassesMesh.scale.set(glassesScale, glassesScale, glassesScale);
+
           if (leftEye && rightEye) {
-            const eyesDistance = rightEye.x - leftEye.x;
-            const glassesWidth = eyesDistance * 2;
-            const glassesHeight =
-              glassesImg.height * (glassesWidth / glassesImg.width);
-
-            const glassesX = leftEye.x - glassesWidth / 4;
-            const glassesY = leftEye.y - glassesHeight / 2;
-
-            ctx.drawImage(
-              glassesImg,
-              glassesX,
-              glassesY,
-              glassesWidth,
-              glassesHeight
+            const eyeDistance = Math.sqrt(
+              Math.pow(rightEye.x - leftEye.x, 2) +
+                Math.pow(rightEye.y - leftEye.y, 2)
             );
+            const scaleMultiplier = eyeDistance / 140;
+            const scaleX = -0.01;
+            const scaleY = -0.01;
+            const offsetX = 0.0;
+            const offsetY = -0.01;
+            glassesMesh.position.x =
+              (leftEye.x - webcamRef.current.video.videoWidth / 2) * scaleX +
+              offsetX;
+            glassesMesh.position.y =
+              (leftEye.y - webcamRef.current.video.videoHeight / 2) * scaleY +
+              offsetY;
+            glassesMesh.scale.set(
+              scaleMultiplier,
+              scaleMultiplier,
+              scaleMultiplier
+            );
+            glassesMesh.position.z = 1;
+            const eyeLine = new THREE.Vector2(
+              rightEye.x - leftEye.x,
+              rightEye.y - leftEye.y
+            );
+            const rotationZ = Math.atan2(eyeLine.y, eyeLine.x);
+            glassesMesh.rotation.z = rotationZ;
           }
         }
       }
@@ -92,51 +119,151 @@ const VRPosenet = () => {
   };
 
   const loadPoseNet = async () => {
-    await tf.ready();
-    const net = await poseDetection.createDetector(
-      poseDetection.SupportedModels.MoveNet
-    );
+    try {
+      setLoading(true);
+      await tf.ready();
+      const detectorConfig = {
+        runtime: "tfjs",
+        enableSmoothing: true,
+        modelType: "full",
+      };
 
-    setNet(net);
+      const net = await poseDetection.createDetector(
+        poseDetection.SupportedModels.BlazePose,
+        detectorConfig
+      );
+
+      setNet(net);
+      setLoading(false);
+    } catch (error) {
+      console.log("Error while loading model", error);
+    }
   };
 
   useEffect(() => {
-    const loadGlassesImage = async () => {
-      const img = new Image();
-      img.src = "/images/glass.png"; // Provide the path to your goggles image
-      img.onload = () => {
-        setGlassesImg(img);
-      };
-    };
-    loadGlassesImage();
+    try {
+      loadPoseNet();
+
+      // Three.js setup
+      const width = 480;
+      const height = 360;
+
+      // Scene, camera, and renderer setup
+      const renderer = new THREE.WebGLRenderer({
+        canvas: canvasRef.current,
+        alpha: true, // Set alpha to true to make the background transparent
+      });
+      renderer.setSize(width, height);
+      document.body.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+
+      const camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
+      camera.position.set(0, 2, 5); //setting x, y and z axis
+
+      function animate() {
+        requestAnimationFrame(animate);
+
+        renderer.render(scene, camera);
+      }
+
+      renderer.setAnimationLoop(animate);
+
+      let glassWidth = 3,
+        glassHeight = 1;
+      // Glasses Mesh
+      const textureLoader = new THREE.TextureLoader();
+      textureLoader.load("/images/glass.png", (texture) => {
+        texture.colorSpace = THREE.SRGBColorSpace;
+        const geometry = new THREE.PlaneGeometry(glassWidth, glassHeight);
+        const material = new THREE.MeshBasicMaterial({
+          map: texture,
+          transparent: true,
+        });
+        const glasses = new THREE.Mesh(geometry, material);
+        console.log("glasses", glasses);
+
+        scene.add(glasses);
+        setGlassesMesh(glasses);
+      });
+    } catch (error) {
+      console.log("Initialization error : ", error);
+    }
   }, []);
 
   useEffect(() => {
-    loadPoseNet();
-  }, []);
-
-  useEffect(() => {
-    if (net) {
-      const intervalId = setInterval(detectPoses, 10);
+    if (net && glassesMesh) {
+      const intervalId = setInterval(detectPoses, 100);
       return () => clearInterval(intervalId);
     }
-  }, [net]);
+  }, [net, glassesMesh]);
 
   return (
-    <div>
-      <Webcam
-        className="absolute mx-auto left-0 right-0 text-center"
-        style={{ width: 480, height: 360 }}
-        ref={webcamRef}
-      />
+    <>
+      {isLoading ? (
+        <Loader />
+      ) : (
+        // <div>
+        //   <Webcam
+        //     className="absolute mx-auto left-0 right-0 text-center"
+        //     style={{ width: 480, height: 360 }}
+        //     ref={webcamRef}
+        //   />
 
-      <canvas
-        className="absolute mx-auto left-0 right-0 text-center"
-        style={{ width: 480, height: 360 }}
-        ref={canvasRef}
-      />
-    </div>
+        //   <canvas
+        //     className="absolute mx-auto left-0 right-0 text-center"
+        //     style={{ width: 480, height: 360 }}
+        //     ref={canvasRef}
+        //   />
+        // </div>
+
+        <div
+          style={{
+            position: "relative",
+            margin: "0 auto",
+            width: "480px",
+            height: "360px",
+          }}
+        >
+          {isLoading && (
+            <div
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                height: "100%",
+                backgroundColor: "rgba(255, 255, 255, 0.5)",
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                zIndex: 2,
+              }}
+            >
+              <h3>Loading...</h3>
+            </div>
+          )}
+          <Webcam
+            ref={webcamRef}
+            autoPlay
+            // playsInline
+            style={{ width: "480px", height: "360px" }}
+            mirrored={true}
+          />
+          <canvas
+            ref={canvasRef}
+            style={{
+              width: "480px",
+              height: "360px",
+              position: "absolute",
+              top: 0,
+              left: 0,
+            }}
+          />
+        </div>
+      )}
+    </>
   );
 };
 
-export default VRPosenet;
+export default VRPoseDetection;
