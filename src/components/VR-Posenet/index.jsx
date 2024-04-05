@@ -71,27 +71,17 @@ const VRPoseDetection = () => {
           const leftEye = getBodyPartData("left_eye");
           const rightEye = getBodyPartData("right_eye");
 
-          // Convert 2D keypoints to 3D space
-          // glassesMesh.position.x = (leftEye.x + rightEye.x) / 2;
-          // glassesMesh.position.y = (leftEye.y + rightEye.y) / 2;
-          // glassesMesh.position.z = 10;
-
-          // // Calculate the scale of the glassesMesh based on eye distance
-          // const eyeDistance = Math.abs(rightEye.x - leftEye.x);
-          // const glassesScale = eyeDistance / 100; // Adjust this scale factor as needed
-
-          // glassesMesh.scale.set(glassesScale, glassesScale, glassesScale);
-
           if (leftEye && rightEye) {
             const eyeDistance = Math.sqrt(
               Math.pow(rightEye.x - leftEye.x, 2) +
                 Math.pow(rightEye.y - leftEye.y, 2)
             );
-            const scaleMultiplier = eyeDistance / 140;
+            const scaleMultiplier = eyeDistance / 200;
             const scaleX = -0.01;
             const scaleY = -0.01;
             const offsetX = 0.0;
             const offsetY = -0.01;
+
             glassesMesh.position.x =
               (leftEye.x - webcamRef.current.video.videoWidth / 2) * scaleX +
               offsetX;
@@ -104,6 +94,7 @@ const VRPoseDetection = () => {
               scaleMultiplier
             );
             glassesMesh.position.z = 1;
+
             const eyeLine = new THREE.Vector2(
               rightEye.x - leftEye.x,
               rightEye.y - leftEye.y
@@ -123,13 +114,15 @@ const VRPoseDetection = () => {
       setLoading(true);
       await tf.ready();
       const detectorConfig = {
-        runtime: "tfjs",
+        // modelType: poseDetection.movenet.modelType.MULTIPOSE_LIGHTNING,
+        modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING,
         enableSmoothing: true,
-        modelType: "full",
+        // minPoseScore: 0.6,
+        multiPoseMaxDimension: 352,
       };
 
       const net = await poseDetection.createDetector(
-        poseDetection.SupportedModels.BlazePose,
+        poseDetection.SupportedModels.MoveNet,
         detectorConfig
       );
 
@@ -146,24 +139,31 @@ const VRPoseDetection = () => {
 
       // Three.js setup
       const width = 480;
-      const height = 360;
+      const height = 352;
 
       // Scene, camera, and renderer setup
       const renderer = new THREE.WebGLRenderer({
-        canvas: canvasRef.current,
-        alpha: true, // Set alpha to true to make the background transparent
+        alpha: true,
+        antialias: true,
       });
+
       renderer.setSize(width, height);
-      document.body.appendChild(renderer.domElement);
+      renderer.domElement.style.position = "absolute";
+      renderer.domElement.style.right = "0px";
+      renderer.domElement.style.left = "0px";
+      renderer.domElement.style.width = `${width}px`;
+      renderer.domElement.style.height = `${height}px`;
+      renderer.domElement.style.margin = "auto";
+
+      document.getElementById("pose-detector").appendChild(renderer.domElement);
 
       const scene = new THREE.Scene();
 
       const camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
-      camera.position.set(0, 2, 5); //setting x, y and z axis
+      camera.position.set(0, 0, 5); //setting x, y and z-axis
 
       function animate() {
         requestAnimationFrame(animate);
-
         renderer.render(scene, camera);
       }
 
@@ -193,75 +193,45 @@ const VRPoseDetection = () => {
 
   useEffect(() => {
     if (net && glassesMesh) {
-      const intervalId = setInterval(detectPoses, 100);
+      const intervalId = setInterval(detectPoses, 10);
       return () => clearInterval(intervalId);
     }
   }, [net, glassesMesh]);
 
   return (
     <>
-      {isLoading ? (
-        <Loader />
-      ) : (
-        // <div>
-        //   <Webcam
-        //     className="absolute mx-auto left-0 right-0 text-center"
-        //     style={{ width: 480, height: 360 }}
+      <div id="pose-detector" style={{ width: "480", height: "352px" }}>
+        <Webcam
+          className="absolute mx-auto left-0 right-0"
+          style={{ width: "480px", height: "352px" }}
+          ref={webcamRef}
+        />
+
+        <canvas
+          className="absolute mx-auto left-0 right-0"
+          style={{ width: "480px", height: "352px" }}
+          ref={canvasRef}
+        />
+      </div>
+
+      <div>
+        {/* //   <Webcam
         //     ref={webcamRef}
+        //     autoPlay
+        //     style={{ width: "480px", height: "352px", position: "absolute" }}
         //   />
-
         //   <canvas
-        //     className="absolute mx-auto left-0 right-0 text-center"
-        //     style={{ width: 480, height: 360 }}
+        //     id="pose-output"
         //     ref={canvasRef}
-        //   />
-        // </div>
-
-        <div
-          style={{
-            position: "relative",
-            margin: "0 auto",
-            width: "480px",
-            height: "360px",
-          }}
-        >
-          {isLoading && (
-            <div
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                width: "100%",
-                height: "100%",
-                backgroundColor: "rgba(255, 255, 255, 0.5)",
-                display: "flex",
-                justifyContent: "center",
-                alignItems: "center",
-                zIndex: 2,
-              }}
-            >
-              <h3>Loading...</h3>
-            </div>
-          )}
-          <Webcam
-            ref={webcamRef}
-            autoPlay
-            // playsInline
-            style={{ width: "480px", height: "360px" }}
-            mirrored={true}
-          />
-          <canvas
-            ref={canvasRef}
-            style={{
-              width: "480px",
-              height: "360px",
-              position: "absolute",
-              top: 0,
-              left: 0,
-            }}
-          />
-        </div>
-      )}
+        //     style={{
+        //       width: "480px",
+        //       height: "352px",
+        //       position: "absolute",
+        //       top: 0,
+        //       left: 0,
+        //     }}
+        //   /> */}
+      </div>
     </>
   );
 };
