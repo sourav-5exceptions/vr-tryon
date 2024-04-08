@@ -46,14 +46,14 @@ const VRPoseDetection = () => {
           );
 
           // Draw each pose over canvas
-          poses.forEach(({ keypoints }) => {
-            keypoints.forEach(({ x, y }) => {
-              ctx.beginPath();
-              ctx.arc(x, y, 3, 0, 2 * Math.PI);
-              ctx.fillStyle = "lightblue";
-              ctx.fill();
-            });
-          });
+          // poses.forEach(({ keypoints }) => {
+          //   keypoints.forEach(({ x, y }) => {
+          //     ctx.beginPath();
+          //     ctx.arc(x, y, 3, 0, 2 * Math.PI);
+          //     ctx.fillStyle = "lightblue";
+          //     ctx.fill();
+          //   });
+          // });
 
           const bodyPointsWithName = [];
           poses[0].keypoints.forEach(({ x, y, score, name }) => {
@@ -70,36 +70,38 @@ const VRPoseDetection = () => {
 
           const leftEye = getBodyPartData("left_eye");
           const rightEye = getBodyPartData("right_eye");
+          const nose = getBodyPartData("nose");
 
           if (leftEye && rightEye) {
             const eyeDistance = Math.sqrt(
               Math.pow(rightEye.x - leftEye.x, 2) +
                 Math.pow(rightEye.y - leftEye.y, 2)
             );
-            const scaleMultiplier = eyeDistance / 200;
-            const scaleX = -0.01;
+
+            const scaleMultiplier = eyeDistance / 100; // Adjust glassWidth to match the model's width
+
+            const scaleX = 0.01;
             const scaleY = -0.01;
-            const offsetX = 0.0;
-            const offsetY = -0.01;
+            const offsetX = 0.05;
+            const offsetY = 0.1;
 
             glassesMesh.position.x =
-              (leftEye.x - webcamRef.current.video.videoWidth / 2) * scaleX +
+              ((leftEye.x + rightEye.x) / 2 - videoWidth / 2) * scaleX +
               offsetX;
             glassesMesh.position.y =
-              (leftEye.y - webcamRef.current.video.videoHeight / 2) * scaleY +
+              ((leftEye.y + rightEye.y) / 2 - videoHeight / 2) * scaleY +
               offsetY;
-            glassesMesh.scale.set(
-              scaleMultiplier,
-              scaleMultiplier,
-              scaleMultiplier
-            );
+
+            glassesMesh.position.z = Math.min(leftEye.z, rightEye.z) * 0.01;
+
+            glassesMesh.scale.set(scaleMultiplier, -scaleMultiplier, 1);
             glassesMesh.position.z = 1;
 
             const eyeLine = new THREE.Vector2(
               rightEye.x - leftEye.x,
               rightEye.y - leftEye.y
             );
-            const rotationZ = Math.atan2(eyeLine.y, eyeLine.x);
+            const rotationZ = -Math.atan2(eyeLine.y, eyeLine.x);
             glassesMesh.rotation.z = rotationZ;
           }
         }
@@ -113,18 +115,48 @@ const VRPoseDetection = () => {
     try {
       setLoading(true);
       await tf.ready();
+
+      //movenet configurations start
+
+      // const detectorConfig = {
+      //   // modelType: poseDetection.movenet.modelType.MULTIPOSE_LIGHTNING,
+      //   modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING,
+      //   enableSmoothing: true,
+      //   // minPoseScore: 0.6,
+      //   multiPoseMaxDimension: 352,
+      // };
+
+      // const net = await poseDetection.createDetector(
+      //   poseDetection.SupportedModels.MoveNet,
+      //   detectorConfig
+      // );
+
+      //movenet configurations end
+
+      // blazenet configurations start
+
+      // const detectorConfig = {
+      //   runtime: "tfjs",
+      //   enableSmoothing: true,
+      //   modelType: "full",
+      // };
       const detectorConfig = {
-        // modelType: poseDetection.movenet.modelType.MULTIPOSE_LIGHTNING,
-        modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING,
+        runtime: "tfjs",
+        modelType: "lite",
         enableSmoothing: true,
-        // minPoseScore: 0.6,
-        multiPoseMaxDimension: 352,
+        inputWidth: 256,
+        inputHeight: 256,
+        quantBytes: 2, // Set to 4 for int32 quantization
+        architecture: "ResNet", // Use 'MobileNet' or 'ResNet'
+        scoreThreshold: 0.5, // Minimum confidence score for detected keypoints
       };
 
       const net = await poseDetection.createDetector(
-        poseDetection.SupportedModels.MoveNet,
+        poseDetection.SupportedModels.BlazePose,
         detectorConfig
       );
+
+      //blazenet configurations end
 
       setNet(net);
       setLoading(false);
@@ -135,57 +167,73 @@ const VRPoseDetection = () => {
 
   useEffect(() => {
     try {
-      loadPoseNet();
+      loadPoseNet()
+        .then(() => {
+          // Three.js setup
+          const width = 480;
+          const height = 352;
 
-      // Three.js setup
-      const width = 480;
-      const height = 352;
+          // Scene, camera, and renderer setup
+          const renderer = new THREE.WebGLRenderer({
+            alpha: true,
+            antialias: true,
+          });
 
-      // Scene, camera, and renderer setup
-      const renderer = new THREE.WebGLRenderer({
-        alpha: true,
-        antialias: true,
-      });
+          renderer.setSize(width, height);
+          renderer.domElement.id = "renderer-threejs";
+          renderer.domElement.style.position = "absolute";
+          renderer.domElement.style.right = "0px";
+          renderer.domElement.style.left = "0px";
+          renderer.domElement.style.width = width;
+          renderer.domElement.style.height = height;
+          renderer.domElement.style.margin = "auto";
 
-      renderer.setSize(width, height);
-      renderer.domElement.style.position = "absolute";
-      renderer.domElement.style.right = "0px";
-      renderer.domElement.style.left = "0px";
-      renderer.domElement.style.width = `${width}px`;
-      renderer.domElement.style.height = `${height}px`;
-      renderer.domElement.style.margin = "auto";
+          if (document.getElementById("renderer-threejs")) {
+            document.getElementById("renderer-threejs").remove();
+          }
 
-      document.getElementById("pose-detector").appendChild(renderer.domElement);
+          document
+            .getElementById("pose-detector")
+            .appendChild(renderer.domElement);
 
-      const scene = new THREE.Scene();
+          const scene = new THREE.Scene();
 
-      const camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
-      camera.position.set(0, 0, 5); //setting x, y and z-axis
+          const camera = new THREE.PerspectiveCamera(
+            75,
+            width / height,
+            0.1,
+            1000
+          );
+          camera.position.set(0, 0, 5); //setting x, y and z-axis
 
-      function animate() {
-        requestAnimationFrame(animate);
-        renderer.render(scene, camera);
-      }
+          function animate() {
+            requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+          }
 
-      renderer.setAnimationLoop(animate);
+          renderer.setAnimationLoop(animate);
 
-      let glassWidth = 3,
-        glassHeight = 1;
-      // Glasses Mesh
-      const textureLoader = new THREE.TextureLoader();
-      textureLoader.load("/images/glass.png", (texture) => {
-        texture.colorSpace = THREE.SRGBColorSpace;
-        const geometry = new THREE.PlaneGeometry(glassWidth, glassHeight);
-        const material = new THREE.MeshBasicMaterial({
-          map: texture,
-          transparent: true,
+          const glassWidth = 3;
+          const glassHeight = 1;
+          // Glasses Mesh
+          const textureLoader = new THREE.TextureLoader();
+          textureLoader.load("/images/glass.png", (texture) => {
+            texture.colorSpace = THREE.SRGBColorSpace;
+            const geometry = new THREE.PlaneGeometry(glassWidth, glassHeight);
+            const material = new THREE.MeshBasicMaterial({
+              map: texture,
+              transparent: true,
+            });
+            const glasses = new THREE.Mesh(geometry, material);
+            // console.log("glasses", glasses);
+
+            scene.add(glasses);
+            setGlassesMesh(glasses);
+          });
+        })
+        .catch((err) => {
+          throw err;
         });
-        const glasses = new THREE.Mesh(geometry, material);
-        console.log("glasses", glasses);
-
-        scene.add(glasses);
-        setGlassesMesh(glasses);
-      });
     } catch (error) {
       console.log("Initialization error : ", error);
     }
@@ -193,23 +241,23 @@ const VRPoseDetection = () => {
 
   useEffect(() => {
     if (net && glassesMesh) {
-      const intervalId = setInterval(detectPoses, 10);
-      return () => clearInterval(intervalId);
+      const intervalId = setInterval(detectPoses, 0);
+      // return () => clearInterval(intervalId);
     }
   }, [net, glassesMesh]);
 
   return (
     <>
-      <div id="pose-detector" style={{ width: "480", height: "352px" }}>
+      <div id="pose-detector" style={{ width: 480, height: 352 }}>
         <Webcam
           className="absolute mx-auto left-0 right-0"
-          style={{ width: "480px", height: "352px" }}
+          style={{ width: 480, height: 352 }}
           ref={webcamRef}
         />
 
         <canvas
           className="absolute mx-auto left-0 right-0"
-          style={{ width: "480px", height: "352px" }}
+          style={{ width: 480, height: 352 }}
           ref={canvasRef}
         />
       </div>
